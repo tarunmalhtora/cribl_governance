@@ -1,5 +1,9 @@
 pipeline {
-    agent any  // Run on any available Jenkins agent
+   agent {
+        docker {
+            image 'python:3.10'
+        }
+    }
 
     // ---------- Parameters defined for user input ----------
     parameters {
