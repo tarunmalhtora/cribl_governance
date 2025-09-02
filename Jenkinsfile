@@ -1,61 +1,107 @@
 pipeline {
-  agent any
-  parameters {
-    // match your UI fields
-    choice(name: 'env', choices: ['Cribl Dev','Cribl NonProd','Cribl Prod'], description: 'Environment')
-    string(name: 'routeName', defaultValue: '', description: 'Route Name', trim: true)
-    string(name: 'filter', defaultValue: '', description: 'Filter', trim: true)
-    string(name: 'pipelineName', defaultValue: '', description: 'Pipeline Name', trim: true)
-    choice(name: 'destination', choices: [
-      'splunk-idx-prod',
-      'OpenSearch-Auto-dev',
-      'OpenSearch-Auto-sit',
-      'OpenSearch-Auto-prod'
-    ], description: 'Destination')
-    booleanParam(name: 'finalFlag', defaultValue: false, description: 'Final flag')
-    text(name: 'description', defaultValue: '', description: 'Description / notes')
-    string(name: 'role', defaultValue: 'dev', description: 'Role from UI (dev/sre)', trim: true)
-  }
+    agent any  // Run on any available Jenkins agent
 
-  stages {
-    stage('Echo Inputs from UI Route Validator') {
-      steps {
-        echo """
-        --- Route Validation Inputs ---
-        role        = ${params.role}
-        env         = ${params.env}
-        routeName   = ${params.routeName}
-        filter      = ${params.filter}
-        pipelineName= ${params.pipelineName}
-        destination = ${params.destination}
-        finalFlag   = ${params.finalFlag}
-        description = ${params.description}
-        --------------------------------
-        """
-      }
+    // ---------- Parameters defined for user input ----------
+    parameters {
+        choice(name: 'env', choices: ['Cribl Dev','Cribl NonProd','Cribl Prod'], description: 'Environment')
+        string(name: 'routeName', defaultValue: '', description: 'Route Name', trim: true)
+        string(name: 'filter', defaultValue: '', description: 'Filter condition for route', trim: true)
+        string(name: 'pipelineName', defaultValue: '', description: 'Pipeline Name in Cribl', trim: true)
+        choice(name: 'destination', choices: [
+            'splunk-idx-prod',
+            'OpenSearch-Auto-dev',
+            'OpenSearch-Auto-sit',
+            'OpenSearch-Auto-prod'
+        ], description: 'Destination system')
+        booleanParam(name: 'finalFlag', defaultValue: false, description: 'Final flag for route')
+        text(name: 'description', defaultValue: '', description: 'Description / notes for this route')
+        string(name: 'role', defaultValue: 'dev', description: 'Role from UI (dev/sre)', trim: true)
     }
 
-    stage('Route Naming Convention Validation') {
-      steps {
-        script {
-          // Create a temporary JSON file from Jenkins parameters
-          def routeJson = """
-          [
-            {
-              "name": "${params.routeName}",
-              "destination": "${params.destination}"
+    stages {
+
+        // ---------- Stage 1: Print all user inputs ----------
+        stage('Echo Inputs') {
+            steps {
+                echo """
+                --- Route Validation Inputs ---
+                role        = ${params.role}
+                env         = ${params.env}
+                routeName   = ${params.routeName}
+                filter      = ${params.filter}
+                pipelineName= ${params.pipelineName}
+                destination = ${params.destination}
+                finalFlag   = ${params.finalFlag}
+                description = ${params.description}
+                --------------------------------
+                """
             }
-          ]
-          """
-          writeFile file: 'routes.json', text: routeJson
-
-          // Run Python script directly and print results into Jenkins logs
-          sh '''
-            echo "Running Python validation..."
-            python3 route_validator.py routes.json
-          '''
         }
-      }
+
+
+        // ---------- Stage 2: Route Validation Logic ----------
+        stage('Route Validation Checks') {
+            steps {
+                script {
+                    // Build unique filenames for this run (BUILD_ID = Jenkins build number)
+                    def inputFile  = "routes_${env.BUILD_ID}.json"
+                    def reportFile = "validation_report_${env.BUILD_ID}.json"
+
+                    // Write JSON payload with route information
+                    def routeJson = """        //creates a string in JSON format.
+                    [
+                      {
+                        "name": "${params.routeName}",
+                        "destination": "${params.destination}",
+                        "filter": "${params.filter}",
+                        "finalFlag": ${params.finalFlag}
+                      }
+                    ]
+                    """
+                    writeFile file: inputFile, text: routeJson        //Take the text stored in the variable routeJson and write it into a new file named whatever is in the inputFile variable."
+
+                    // Run Python validation script and capture exit code
+                    def pyExitCode = sh(script: "python3 route_validator.py ${inputFile} > ${reportFile}", returnStatus: true)
+
+                    if (pyExitCode != 0) {
+                        error("Fatal error running validation script (exit code: ${pyExitCode}).")
+                    }
+
+                    // Display results
+                    echo "📋 Validation Results:"
+
+                    // Parse JSON report file into Groovy object
+                    def report = readJSON file: reportFile
+
+                    // Iterate over each route in the report
+                    report.each { routeResult ->
+                        echo "Route '${routeResult.route_name}': ${routeResult.is_valid ? '✅ VALID' : '❌ INVALID'}"
+                        routeResult.errors?.each { err ->
+                            echo "     - [ERROR] ${err}"
+                        }
+                        routeResult.warnings?.each { warn ->
+                            echo "     - [WARN]  ${warn}"
+                        }
+                    }
+
+                    // Archive JSON report as artifact for history
+                    archiveArtifacts artifacts: reportFile, onlyIfSuccessful: false
+                }
+            }
+        }
     }
-  }
+
+    // ---------- Post build actions ----------
+    post {
+        always {
+            echo "🧹 Cleaning up workspace files"
+            cleanWs()  // Deletes all workspace files after archiving
+        }
+        failure {
+            echo "❌ Route validation failed. Please check the logs above."
+        }
+        success {
+            echo "✅ Route validation passed successfully!"
+        }
+    }
 }
