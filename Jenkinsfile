@@ -49,7 +49,7 @@ pipeline {
                     def routeJson = """
                     [
                       {
-                        "name": "${params.routeName}",
+                        "routeName": "${params.routeName}",
                         "destination": "${params.destination}",
                         "filter": "${params.filter}",
                         "finalFlag": ${params.finalFlag}
