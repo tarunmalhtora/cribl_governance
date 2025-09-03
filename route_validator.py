@@ -76,11 +76,13 @@ def write_text_table(results, filename="validation_report.txt"):
     print(f"\n📄 Validation report written to {filename}")
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python3 route_validator.py <routes.json>")
+    if len(sys.argv) < 2:
+        print("Usage: python3 route_validator.py <routes.json> [report.json]")
         sys.exit(1)
 
     input_file = sys.argv[1]
+    output_file = sys.argv[2] if len(sys.argv) > 2 else "validation_report.json"
+
     try:
         with open(input_file) as f:
             routes = json.load(f)
@@ -96,8 +98,8 @@ if __name__ == "__main__":
     result = check_naming(route_dict)
     print("Final check to be passed : ", result)
 
-    # ✅ Write JSON report instead of text table
-    with open("validation_report.json", "w") as f:
+    # ✅ Write JSON report with unique filename
+    with open(output_file, "w") as f:
         json.dump([result], f, indent=2)
 
-    print("📄 Validation report written to validation_report.json")
+    print(f"📄 Validation report written to {output_file}")
