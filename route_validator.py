@@ -21,65 +21,59 @@ import sys
 import traceback
 
 
-def check_naming(route):
+def check_naming(route_dict):
     """Check route naming convention based on destination."""
-    name = route.get("name", "").strip()
-    dest = route.get("destination", "").strip()
+    print(f"routeName => {(routeName := route_dict['routeName'])}")
+    print(f"destination => {(destination := route_dict['destination'])}")
+    
+    # final_status, errors, warnings = [], [], []
 
-    errors, warnings = [], []
+    # print(f"[DEBUG] Checking route '{name}' with destination '{dest}'")
+    Validation_Status = []
+    status = "Pass"
+    remarks = "NA"
 
-    print(f"[DEBUG] Checking route '{name}' with destination '{dest}'")
+    if "opensearch" in destination.lower():
+        print("checking validation for OpenSearch")
+        if not (routeName.startswith("NEO AUTO - ") and routeName.endswith("(NEO Output Router)")):
+            status = "Failed"
+            Validation_Status.append(
+                f"Route '{routeName}' is INVALID for OpenSearch. "
+                "Must be in format: 'NEO AUTO - <tenant name> (NEO Output Router)'.")
+            remarks = Validation_Status
+        else:
+            Validation_Status.append(f"✅ Route name validation is passed ✅ ")
+             
+        
 
-    if "opensearch" in dest.lower():
-        if not (name.startswith("NEO AUTO - ") and name.endswith("(NEO Output Router)")):
-            errors.append(
-                f"Route '{name}' is INVALID for OpenSearch. "
-                "Must be in format: 'NEO AUTO - <tenant> (NEO Output Router)'."
-            )
-
-    elif "splunk" in dest.lower():
-        if not name.startswith("SPLUNK - "):
-            errors.append(
-                f"Route '{name}' is INVALID for Splunk. "
-                "Must be in format: 'SPLUNK - <tenant>'."
-            )
-
+    elif "splunk" in destination.lower():
+        print("checking validation for Splunk")
+        if not routeName.startswith("SPLUNK - "):
+            status = "Failed"
+            Validation_Status.append(
+                f"Route '{routeName}' is INVALID for Splunk. "
+                "Must be in format: 'SPLUNK - <tenant name>'.")
+            remarks = Validation_Status
+        else:
+            Validation_Status.append(f"✅ Route name validation is passed ✅ ")
     else:
-        warnings.append(f"Destination '{dest}' not recognized. No naming rules applied.")
+        status = "Failed"
+        remarks = f"Unsupported destination '{destination}' for naming convention validation."
+        print(f"Unsupported destination '{destination}' for naming convention validation.")
+        
+    print("Validation_Status",Validation_Status)
+    
+    return {"No": 1, "Check Name": "Route Naming Validation", "Status": status, "Remarks": remarks}
 
-    return errors, warnings
 
-
-def validate_routes(routes):
-    results = []
-
-    for r in routes:
-        route_result = {
-            "route_name": r.get("name"),
-            "destination": r.get("destination"),
-            "is_valid": True,
-            "errors": [],
-            "warnings": []
-        }
-
-        try:
-            errs, warns = check_naming(r)
-            route_result["errors"].extend(errs)
-            route_result["warnings"].extend(warns)
-
-            if route_result["errors"]:
-                route_result["is_valid"] = False
-
-        except Exception as e:
-            tb = traceback.format_exc()
-            route_result["is_valid"] = False
-            route_result["errors"].append(f"Validator crashed: {str(e)}")
-            route_result["errors"].append(tb)
-
-        results.append(route_result)
-
-    return results
-
+def write_text_table(results, filename="validation_report.txt"):
+    """Write results into a table-style text file."""
+    with open(filename, "w") as f:
+        f.write("No. | Check Name        | Status  | Remarks\n")
+        f.write("----|-------------------|---------|-----------------------------------------------------------\n")
+        for r in results:
+            f.write(f"{r['No']:<3} | {r['Check Name']:<17} | {r['Status']:<7} | {r['Remarks']}\n")
+    print(f"\n📄 Validation report written to {filename}")
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
@@ -90,32 +84,20 @@ if __name__ == "__main__":
     try:
         with open(input_file) as f:
             routes = json.load(f)
+            print(f" File read successfull {routes}")
+        # Creating the dictionary from the list
+        route_dict = routes[0]  # This is now a dictionary
+
+        # Verify it's a dictionary
+        print("verify the data type",type(route_dict))  # Output: <class 'dict'>
     except Exception as e:
         print(f"❌ Failed to read input file '{input_file}': {e}")
         sys.exit(1)
 
-    print(f"✅ Loaded {len(routes)} route(s) from {input_file}")
+    print(f"✅ Loaded {len(routes)} route(s) from {input_file} for further validation")
+    
+    result = check_naming(route_dict)
+    print("Final check to be passed : ", result)
 
-    # Run validation
-    results = validate_routes(routes)
-
-    # Print human-friendly summary
-    print("\n📋 Validation Results:")
-    for r in results:
-        mark = "✅" if r["is_valid"] else "❌"
-        print(f"{mark} Route '{r['route_name']}' (Destination: {r['destination']})")
-        for err in r["errors"]:
-            print(f"   - [ERROR] {err}")
-        for warn in r["warnings"]:
-            print(f"   - [WARN]  {warn}")
-
-    # Write JSON report
-    out_file = "validation_report.json"
-    with open(out_file, "w") as f:
-        json.dump(results, f, indent=2)
-
-    # Exit with status
-    if any(not r["is_valid"] for r in results):
-        sys.exit(1)
-    else:
-        sys.exit(0)
+    # Write table report
+    write_text_table([result])
