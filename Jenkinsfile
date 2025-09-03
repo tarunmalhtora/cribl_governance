@@ -37,8 +37,6 @@ pipeline {
                 """
             }
         }
-
-
         // ---------- Stage 2: Route Validation Logic ----------
         stage('Route Validation Checks') {
             steps {
@@ -48,7 +46,7 @@ pipeline {
                     def reportFile = "validation_report_${env.BUILD_ID}.json"
 
                     // Write JSON payload with route information
-                    def routeJson = """        //creates a string in JSON format.
+                    def routeJson = """
                     [
                       {
                         "name": "${params.routeName}",
@@ -58,19 +56,26 @@ pipeline {
                       }
                     ]
                     """
-                    writeFile file: inputFile, text: routeJson        //Take the text stored in the variable routeJson and write it into a new file named whatever is in the inputFile variable."
+                   //Take the text stored in the variable routeJson and write it into a new file named whatever is in the inputFile variable."
+                    writeFile file: inputFile, text: routeJson 
+
+                    // 🔍 Debugging before running Python
+                    sh "echo '🔍 Debug Info:'"
+                    sh "which python3 || true"
+                    sh "python3 --version || true"
+                    sh "ls -l"
+                    sh "cat ${inputFile}"
 
                     // Run Python validation script and capture exit code
-                    //def pyExitCode = sh(script: "python route_validator.py ${inputFile} > ${reportFile}", returnStatus: true)
                     def pyExitCode = sh(script: "python3 route_validator.py ${inputFile} > ${reportFile}", returnStatus: true)
 
+                    // Show raw report for debugging
+                    echo "📋 Raw validation report (JSON):"
+                    sh "cat ${reportFile} || echo '⚠️ No report file created'"
 
                     if (pyExitCode != 0) {
                         error("Fatal error running validation script (exit code: ${pyExitCode}).")
                     }
-
-                    // Display results
-                    echo "📋 Validation Results:"
 
                     // Parse JSON report file into Groovy object
                     def report = readJSON file: reportFile
