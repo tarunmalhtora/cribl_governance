@@ -65,7 +65,9 @@ pipeline {
                     writeFile file: inputFile, text: routeJson        //Take the text stored in the variable routeJson and write it into a new file named whatever is in the inputFile variable."
 
                     // Run Python validation script and capture exit code
-                    def pyExitCode = sh(script: "python route_validator.py ${inputFile} > ${reportFile}", returnStatus: true)
+                    #def pyExitCode = sh(script: "python route_validator.py ${inputFile} > ${reportFile}", returnStatus: true)
+                    def pyExitCode = sh(script: "python3 route_validator.py ${inputFile} > ${reportFile}", returnStatus: true)
+
 
                     if (pyExitCode != 0) {
                         error("Fatal error running validation script (exit code: ${pyExitCode}).")
