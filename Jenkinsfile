@@ -1,7 +1,8 @@
 pipeline {
-   agent any  // Run on any available Jenkins agent
+   agent any // Run on any available Jenkins agent
 
     // ---------- Parameters defined for user input ----------
+
     parameters {
         choice(name: 'env', choices: ['Cribl Dev','Cribl NonProd','Cribl Prod'], description: 'Environment')
         string(name: 'routeName', defaultValue: '', description: 'Route Name', trim: true)
@@ -19,7 +20,6 @@ pipeline {
     }
 
     stages {
-
         // ---------- Stage 1: Print all user inputs ----------
         stage('Echo Inputs') {
             steps {
@@ -66,33 +66,34 @@ pipeline {
                     sh "ls -l"
                     sh "cat ${inputFile}"
 
-                    // Run Python validation script and capture exit code
-                    def pyExitCode = sh(script: "python3 route_validator.py ${inputFile} > ${reportFile}", returnStatus: true)
-
-                    // Show raw report for debugging
-                    echo "📋 Raw validation report (JSON):"
-                    sh "cat ${reportFile} || echo '⚠️ No report file created'"
+                    // Run Python validation script  and generate unique report file
+                    def pyExitCode = sh(script: "python3 route_validator.py ${inputFile} ${reportFile}", returnStatus: true)
 
                     if (pyExitCode != 0) {
                         error("Fatal error running validation script (exit code: ${pyExitCode}).")
                     }
 
-                    // Parse JSON report file into Groovy object
+                    // Parse JSON report
                     def report = readJSON file: reportFile
 
-                    // Iterate over each route in the report
-                    report.each { routeResult ->
-                        echo "Route '${routeResult.route_name}': ${routeResult.is_valid ? '✅ VALID' : '❌ INVALID'}"
-                        routeResult.errors?.each { err ->
-                            echo "     - [ERROR] ${err}"
-                        }
-                        routeResult.warnings?.each { warn ->
-                            echo "     - [WARN]  ${warn}"
-                        }
+                    // Pretty-print in tabular format
+                    echo "📋 Validation Report:"
+                    echo "-------------------------------------------------------------"
+                    echo String.format("%-5s | %-25s | %-10s | %-50s", "No", "Check Name", "Status", "Remarks")
+                    echo "-------------------------------------------------------------"
+                    report.each { r ->
+                        echo String.format("%-5s | %-25s | %-10s | %-50s", r.No, r['Check Name'], r.Status, r.Remarks)
                     }
+                    echo "-------------------------------------------------------------"
 
-                    // Archive JSON report as artifact for history
+                    // Archive JSON report
                     archiveArtifacts artifacts: reportFile, onlyIfSuccessful: false
+
+                    // Fail build if any Status = Failed
+                    def failed = report.find { it.Status == "Failed" }
+                    if (failed) {
+                        error("Validation failed: One or more checks did not pass.")
+                    }
                 }
             }
         }
@@ -102,7 +103,7 @@ pipeline {
     post {
         always {
             echo "🧹 Cleaning up workspace files"
-            cleanWs()  // Deletes all workspace files after archiving
+            cleanWs()  // will delete routes_*.json + validation_report_*.json
         }
         failure {
             echo "❌ Route validation failed. Please check the logs above."
