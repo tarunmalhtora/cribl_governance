@@ -85,11 +85,8 @@ if __name__ == "__main__":
         with open(input_file) as f:
             routes = json.load(f)
             print(f" File read successfull {routes}")
-        # Creating the dictionary from the list
-        route_dict = routes[0]  # This is now a dictionary
-
-        # Verify it's a dictionary
-        print("verify the data type",type(route_dict))  # Output: <class 'dict'>
+        route_dict = routes[0]
+        print("verify the data type", type(route_dict))
     except Exception as e:
         print(f"❌ Failed to read input file '{input_file}': {e}")
         sys.exit(1)
@@ -99,5 +96,8 @@ if __name__ == "__main__":
     result = check_naming(route_dict)
     print("Final check to be passed : ", result)
 
-    # Write table report
-    write_text_table([result])
+    # ✅ Write JSON report instead of text table
+    with open("validation_report.json", "w") as f:
+        json.dump([result], f, indent=2)
+
+    print("📄 Validation report written to validation_report.json")
