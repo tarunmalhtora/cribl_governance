@@ -84,6 +84,7 @@ def check_filter_basic(route_dict):
     """
 
     REQUIRE_INDEX = True
+    REQUIRE_INPUTID = True
     check_name = "Filter Presence & Syntax"
 
     # --------- Step 1: Get filter value ---------
@@ -92,9 +93,9 @@ def check_filter_basic(route_dict):
 
     # --------- Step 2: Presence checks ---------
     if f is None:
-        return {"Check Name": check_name, "Status": "Failed", "Remarks": "Filter key missing."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed", "Remarks": "Filter key missing."}
     if not isinstance(f, str) or not f.strip():
-        return {"Check Name": check_name, "Status": "Failed", "Remarks": "Filter is empty or only whitespace."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed", "Remarks": "Filter is empty or only whitespace."}
     print("[DEBUG] Passed presence check")
 
     s = f.strip()
@@ -104,12 +105,12 @@ def check_filter_basic(route_dict):
     MAX_LEN = 2000
     print("2. length is", len(s))
     if len(s) > MAX_LEN:
-        return {"Check Name": check_name, "Status": "Failed", "Remarks": f"Filter too long (> {MAX_LEN} chars)."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed", "Remarks": f"Filter too long (> {MAX_LEN} chars)."}
 
     forbidden_chars = ['\x00', '\r', '\n', '`', ';']
     bad = [c for c in forbidden_chars if c in s]
     if bad:
-       return {"Check Name": check_name, "Status": "Failed","Remarks": f"Contains forbidden characters: {', '.join(repr(c) for c in bad)}"}
+       return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": f"Contains forbidden characters: {', '.join(repr(c) for c in bad)}"}
     print("[DEBUG] Passed length and forbidden character checks")
 
     # --------- Step 4: Balanced quotes ---------
@@ -126,14 +127,14 @@ def check_filter_basic(route_dict):
         return (count % 2) == 0
 
     if not quotes_balanced(s, "'") or not quotes_balanced(s, '"'):
-        return {"Check Name": check_name, "Status": "Failed","Remarks": "Unbalanced quotes in filter (check matching single/double quotes)."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Unbalanced quotes in filter (check matching single/double quotes)."}
     print("[DEBUG] Passed balanced quotes check")
 
      # ✅ New: Balanced parentheses check
     open_parens = s.count("(")
     close_parens = s.count(")")
     if open_parens != close_parens:
-        return {"Check Name": check_name, "Status": "Failed",
+        return {"No": 2, "Check Name": check_name, "Status": "Failed",
                 "Remarks": "Unbalanced parentheses in filter (check matching '(' and ')' )."}
 
     print("[DEBUG] Passed balanced quotes & parentheses check")
@@ -141,23 +142,23 @@ def check_filter_basic(route_dict):
     # --------- Step 5: Disallow unsupported operators IN---------
     if re.search(r"\b in \b", s, flags=re.IGNORECASE):
         print("[DEBUG] Found unsupported 'in' operator")
-        return {"Check Name": check_name, "Status": "Failed", "Remarks": "Operator 'in' is not supported for index checks."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed", "Remarks": "Operator 'in' is not supported for index checks."}
 
     if re.search(r"(?<![=!<>])=(?!=)", s):
         print("[DEBUG] Found invalid single '='")
-        return {"Check Name": check_name, "Status": "Failed","Remarks": "Single '=' operator is not supported; use '==' for equality."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Single '=' operator is not supported; use '==' for equality."}
 
     # Disallow single & or | (must use && or ||)
     if re.search(r"(^|[^&])&($|[^&])", s) or re.search(r"(^|[^|])\|($|[^|])", s):
-        return {"Check Name": check_name, "Status": "Failed","Remarks": "Invalid boolean operator; use '&&' or '||' instead of single & or |."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Invalid boolean operator; use '&&' or '||' instead of single & or |."}
     
     # Fail if dangling && or || at the end
     if re.search(r"(&&|\|\|)\s*$", s):
-        return {"Check Name": check_name, "Status": "Failed","Remarks": "Dangling boolean operator at end of filter."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Dangling boolean operator at end of filter."}
 
     # Fail if invalid boolean sequence like "&& ||" or "|| &&"
     if re.search(r"(&&\s*\|\||\|\|\s*&&)", s):
-        return {"Check Name": check_name, "Status": "Failed",
+        return {"No": 2, "Check Name": check_name, "Status": "Failed",
             "Remarks": "Invalid boolean operator sequence (e.g. '&& ||' is not allowed)."}
 
     print("[DEBUG] Passed operator checks")
@@ -167,25 +168,28 @@ def check_filter_basic(route_dict):
     print(f"[DEBUG] Whitespace-normalized filter => {norm}")
 
     found_index_clause = False
+    found_inputid_clause = False
     warnings = []
 
     # --------- Step 7: Match patterns ---------
     # Allow ==, !=, >, <, >=, <=
     operator_pattern = r"(==|!=|>=|<=|>|<)"
 
-    # 7a. index OP 'value' (quoted RHS)
-    m1 = re.search(rf"\bindex\b\s*{operator_pattern}\s*'([^']*)'", norm, flags=re.IGNORECASE)
+    # 7a. index OP 'value' (quoted RHS)  — now supports both single and double quotes
+    m1 = re.search(rf"\bindex\b\s*{operator_pattern}\s*(?:'([^']*)'|\"([^\"]*)\")", norm, flags=re.IGNORECASE)
     print(f"[DEBUG] Match m1 (quoted equality) => {bool(m1)}, {m1}")
     if m1:
         op = m1.group(1)
-        val = m1.group(2)
+        # group(2) = single-quoted inner, group(3) = double-quoted inner
+        val = m1.group(2) if m1.group(2) is not None else m1.group(3)
         print(f"[DEBUG] Quoted RHS with operator {op} => {val}")
         if '*' in val:
-            return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed."}
+            return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed."}
         found_index_clause = True
 
     # 7b. index OP value (unquoted RHS)
     m2 = re.search(rf"\bindex\b\s*{operator_pattern}\s*([A-Za-z0-9_.-]+)\b", norm, flags=re.IGNORECASE)
+    print(f"[DEBUG] Match m2 (unquoted equality) => {bool(m2)},{m2}")
     if m2 and not m1:
         op = m2.group(1)
         val = m2.group(2)
@@ -202,7 +206,7 @@ def check_filter_basic(route_dict):
         if quoted_val:
             print(f"[DEBUG] includes quoted val => {quoted_val}")
             if '*' in quoted_val:
-                return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index.includes(...) is not allowed."}
+                return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index.includes(...) is not allowed."}
         elif unquoted_val:
             print(f"[DEBUG] includes unquoted val => {unquoted_val}")
             warnings.append("index.includes used with unquoted value; quoting the argument is recommended.")
@@ -213,24 +217,32 @@ def check_filter_basic(route_dict):
     # if we find index== followed by a token containing '*' (or other disallowed chars), fail with explicit msg
     m_malformed = re.search(rf"\bindex\b\s*{operator_pattern}\s*([^\s()]+)", norm, flags=re.IGNORECASE)
     if m_malformed and not (m1 or m2):
-        rhs_token = m_malformed.group(3)
+        rhs_token = m_malformed.group(2)
         print("[DEBUG] Malformed RHS token detected =>", rhs_token)
         # if it includes wildcard or other disallowed char -> fail with specific message
         if '*' in rhs_token:
-            return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed (unquoted or quoted)."}
+            return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed (unquoted or quoted)."}
         # other non-matching tokens (containing unsupported punctuation) -> fail with malformed message
         if not re.match(r"^[A-Za-z0-9_.-']+$", rhs_token):
-            return {"Check Name": check_name, "Status": "Failed","Remarks": "Malformed RHS in index comparison; expected quoted string or alphanumeric token."}
+            return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Malformed RHS in index comparison; expected quoted string or alphanumeric token."}
+
+    # Also detect __inputId presence (supporting quoted and unquoted forms)
+    m_inputid = re.search(rf"\b__inputId\b\s*{operator_pattern}\s*(?:'([^']*)'|\"([^\"]*)\"|([A-Za-z0-9_.:-]+))", norm, flags=re.IGNORECASE)
+    if m_inputid:
+        print(f"[DEBUG] Found __inputId clause => {m_inputid.group(0)}")
+        found_inputid_clause = True
 
     # --------- Step 8: Ensure an index clause was found ---------
     if REQUIRE_INDEX and not found_index_clause:
-        return {"Check Name": check_name, "Status": "Failed","Remarks": "Filter must include an index check (e.g. index == 'nmp_prod')."}
+        return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Filter must include an index check (e.g. index == 'nmp_prod')."}
+    if REQUIRE_INPUTID and not found_inputid_clause:
+        return {"No": 2, "Check Name": check_name, "Status": "Failed","Remarks": "Filter must include an __inputId check."}
 
     # --------- Step 9: Return final status ---------
     if warnings:
-        return {"Check Name": check_name, "Status": "Pass", "Remarks": " ; ".join(warnings)}
+        return {"No": 2, "Check Name": check_name, "Status": "Pass", "Remarks": " ; ".join(warnings)}
     else:
-        return {"Check Name": check_name, "Status": "Pass", "Remarks": "Filter index check OK."}
+        return {"No": 2, "Check Name": check_name, "Status": "Pass", "Remarks": "Filter index check OK."}
 
 
 def write_text_table(results, filename="validation_report.txt"):
