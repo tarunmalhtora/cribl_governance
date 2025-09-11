@@ -167,16 +167,17 @@ def check_filter_basic(route_dict):
     # --------- Step 7: Match patterns ---------
     operator_pattern = r"(==|!=|>=|<=|>|<)"
 
-    # 7a. index OP 'value'  or  index OP "value"
-    m1 = re.search(rf"\bindex\b\s*{operator_pattern}\s*(['\"])(.*?)\1", norm, flags=re.IGNORECASE)
+    # 7a. index OP 'value' or "value" (quoted RHS with single or double quotes)
+    m1 = re.search(rf"\bindex\b\s*{operator_pattern}\s*(['\"])([^'\"]*)\1", norm, flags=re.IGNORECASE)
     print(f"[DEBUG] Match m1 (quoted equality) => {bool(m1)}, {m1}")
     if m1:
-        op = m1.group(1)
-        val = m1.group(2)
+        op = m1.group(1)  # operator (==, !=, etc.)
+        val = m1.group(2) # RHS value inside quotes
         print(f"[DEBUG] Quoted RHS with operator {op} => {val}")
         if '*' in val:
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed."}
         found_index_clause = True
+
 
     # 7b. index OP value (unquoted RHS)
     m2 = re.search(rf"\bindex\b\s*{operator_pattern}\s*([A-Za-z0-9_.-]+)\b", norm, flags=re.IGNORECASE)
