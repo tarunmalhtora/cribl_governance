@@ -27,9 +27,6 @@ def check_naming(route_dict):
     print(f"routeName => {(routeName := route_dict['routeName'])}")
     print(f"destination => {(destination := route_dict['destination'])}")
     
-    # final_status, errors, warnings = [], [], []
-
-    # print(f"[DEBUG] Checking route '{name}' with destination '{dest}'")
     Validation_Status = []
     status = "Pass"
     remarks = "NA"
@@ -72,17 +69,19 @@ def check_filter_basic(route_dict):
       - Must be present and non-empty string
       - No forbidden characters (null, newline, backtick, semicolon)
       - Quotes must be balanced
+      - Parentheses must be balanced
       - 'in' operator not allowed
       - Single '=' not allowed (must use '==')
-      - Must reference 'index'
+      - Must reference both 'index' and '__inputId'
       - Allowed forms:
-          * index == 'value'  or index == "value"  (strict, recommended)
+          * index == 'value'  or index == "value"
           * index == value (allowed but warns to quote RHS)
-          * index.includes('value') or index.includes("value") (allowed, warns if unquoted)
+          * index.includes('value') or index.includes("value")
       - Wildcard '*' is not allowed in RHS (quoted or inside includes)
     """
 
     REQUIRE_INDEX = True
+    REQUIRE_INPUTID = True
     check_name = "Filter Presence & Syntax"
 
     # --------- Step 1: Get filter value ---------
@@ -134,6 +133,7 @@ def check_filter_basic(route_dict):
                 "Remarks": "Unbalanced parentheses in filter (check matching '(' and ')' )."}
 
     print("[DEBUG] Passed balanced quotes & parentheses check")
+
     # --------- Step 5: Operator sanity ---------
     if re.search(r"\b in \b", s, flags=re.IGNORECASE):
         print("[DEBUG] Found unsupported 'in' operator")
@@ -151,7 +151,7 @@ def check_filter_basic(route_dict):
     if re.search(r"(&&|\|\|)\s*$", s):
         return {"Check Name": check_name, "Status": "Failed","Remarks": "Dangling boolean operator at end of filter."}
 
-    # Fail if invalid boolean sequence like "&& ||" or "|| &&"
+    # Invalid boolean sequence
     if re.search(r"(&&\s*\|\||\|\|\s*&&)", s):
         return {"Check Name": check_name, "Status": "Failed","Remarks": "Invalid boolean operator sequence (e.g. '&& ||')."}
 
@@ -162,6 +162,7 @@ def check_filter_basic(route_dict):
     print(f"[DEBUG] Whitespace-normalized filter => {norm}")
 
     found_index_clause = False
+    found_inputid_clause = False
     warnings = []
 
     # --------- Step 7: Match patterns ---------
@@ -178,7 +179,6 @@ def check_filter_basic(route_dict):
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed."}
         found_index_clause = True
 
-
     # 7b. index OP value (unquoted RHS)
     m2 = re.search(rf"\bindex\b\s*{operator_pattern}\s*([A-Za-z0-9_.-]+)\b", norm, flags=re.IGNORECASE)
     if m2 and not m1:
@@ -188,7 +188,7 @@ def check_filter_basic(route_dict):
         found_index_clause = True
         warnings.append(f"index compared using {op} with unquoted value; recommend quoting the RHS (single or double).")
 
-    # 7c. index.includes('value') or index.includes("value")
+    # 7c. index.includes(...)
     m3 = re.search(r"\bindex\b\.includes\s*\(\s*(['\"])(.*?)\1\s*\)", norm, flags=re.IGNORECASE)
     print(f"[DEBUG] Match m3 (includes) => {bool(m3)}, {m3}")
     if m3:
@@ -198,13 +198,13 @@ def check_filter_basic(route_dict):
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index.includes(...) is not allowed."}
         found_index_clause = True
 
-    # malformed RHS check
+    # ---- NEW: malformed RHS check
     # ---- NEW: catch malformed/unrecognized RHS that contains '*' or other invalid chars ----
     # This covers cases like: index==*sdfd  OR index==sdf*d  (m1/m2 won't match these)
     # if we find index== followed by a token containing '*' (or other disallowed chars), fail with explicit msg
     m_malformed = re.search(rf"\bindex\b\s*{operator_pattern}\s*([^\s()]+)", norm, flags=re.IGNORECASE)
     if m_malformed and not (m1 or m2):
-        rhs_token = m_malformed.group(2) # ✅ fix: correct group index
+        rhs_token = m_malformed.group(2)
         print("[DEBUG] Malformed RHS token detected =>", rhs_token)
         # if it includes wildcard or other disallowed char -> fail with explicit msg
         if '*' in rhs_token:
@@ -212,15 +212,24 @@ def check_filter_basic(route_dict):
         if not re.match(r"^[A-Za-z0-9_.\-'\"]+$", rhs_token):
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Malformed RHS in index comparison; expected quoted string or alphanumeric token."}
 
-    # --------- Step 8: Ensure index clause was found ---------
+    # --------- Step 7d: __inputId mandatory check ---------
+    m_input = re.search(r"__inputId\s*==", norm, flags=re.IGNORECASE)
+    if m_input:
+        found_inputid_clause = True
+        print("[DEBUG] Found __inputId clause in filter")
+
+    # --------- Step 8: Ensure both mandatory clauses ---------
     if REQUIRE_INDEX and not found_index_clause:
         return {"Check Name": check_name, "Status": "Failed","Remarks": "Filter must include an index check (e.g. index == 'nmp_prod')."}
+
+    if REQUIRE_INPUTID and not found_inputid_clause:
+        return {"Check Name": check_name, "Status": "Failed","Remarks": "Filter must include an __inputId check (e.g. __inputId=='splunk:in_splunk_tcp')."}
 
     # --------- Step 9: Return ---------
     if warnings:
         return {"Check Name": check_name, "Status": "Pass", "Remarks": " ; ".join(warnings)}
     else:
-        return {"Check Name": check_name, "Status": "Pass", "Remarks": "Filter index check OK."}
+        return {"Check Name": check_name, "Status": "Pass", "Remarks": "Filter index & inputId checks OK."}
 
 
 def write_text_table(results, filename="validation_report.txt"):
@@ -229,7 +238,7 @@ def write_text_table(results, filename="validation_report.txt"):
         f.write("No. | Check Name        | Status  | Remarks\n")
         f.write("----|-------------------|---------|-----------------------------------------------------------\n")
         for r in results:
-            f.write(f"{r['No']:<3} | {r['Check Name']:<17} | {r['Status']:<7} | {r['Remarks']}\n")
+            f.write(f"{r.get('No','-'):<3} | {r['Check Name']:<17} | {r['Status']:<7} | {r['Remarks']}\n")
     print(f"\n📄 Validation report written to {filename}")
 
 
