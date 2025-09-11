@@ -133,7 +133,6 @@ def check_filter_basic(route_dict):
                 "Remarks": "Unbalanced parentheses in filter (check matching '(' and ')' )."}
 
     print("[DEBUG] Passed balanced quotes & parentheses check")
-
     # --------- Step 5: Operator sanity ---------
     if re.search(r"\b in \b", s, flags=re.IGNORECASE):
         print("[DEBUG] Found unsupported 'in' operator")
@@ -166,21 +165,25 @@ def check_filter_basic(route_dict):
     warnings = []
 
     # --------- Step 7: Match patterns ---------
-    operator_pattern = r"(==|!=|>=|<=|>|<)"
+    # operator pattern (no capturing parentheses here — we'll capture when needed)
+    operator_pattern = r"==|!=|>=|<=|>|<"
 
     # 7a. index OP 'value' or "value" (quoted RHS with single or double quotes)
-    m1 = re.search(rf"\bindex\b\s*{operator_pattern}\s*(['\"])([^'\"]*)\1", norm, flags=re.IGNORECASE)
+    #   - group(1) = operator, group(2) = quote char, group(3) = value
+    m1 = re.search(rf"\bindex\b\s*({operator_pattern})\s*(['\"])([^'\"]*)\2", norm, flags=re.IGNORECASE)
     print(f"[DEBUG] Match m1 (quoted equality) => {bool(m1)}, {m1}")
     if m1:
-        op = m1.group(1)        # operator (==, !=, etc.)
-        val = m1.group(3)       # RHS value inside quotes
-        print(f"[DEBUG] Quoted RHS with operator {op} => {val}")      
+        op = m1.group(1)          # operator (==, !=, etc.)
+        val = m1.group(3)         # RHS value inside quotes        
+        print(f"[DEBUG] Quoted RHS with operator {op} => {val}")
         if '*' in val:
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed."}
         found_index_clause = True
 
     # 7b. index OP value (unquoted RHS)
-    m2 = re.search(rf"\bindex\b\s*{operator_pattern}\s*([A-Za-z0-9_.-]+)\b", norm, flags=re.IGNORECASE)
+    #   - group(1) = operator, group(2) = value
+    m2 = re.search(rf"\bindex\b\s*({operator_pattern})\s*([A-Za-z0-9_.-]+)\b", norm, flags=re.IGNORECASE)
+    print(f"[DEBUG] Match m2 (unquoted equality) => {bool(m2)},{m2}")
     if m2 and not m1:
         op = m2.group(1)
         val = m2.group(2)
@@ -188,7 +191,7 @@ def check_filter_basic(route_dict):
         found_index_clause = True
         warnings.append(f"index compared using {op} with unquoted value; recommend quoting the RHS (single or double).")
 
-    # 7c. index.includes(...)
+    # 7c. index.includes('value') or index.includes("value")
     m3 = re.search(r"\bindex\b\.includes\s*\(\s*(['\"])(.*?)\1\s*\)", norm, flags=re.IGNORECASE)
     print(f"[DEBUG] Match m3 (includes) => {bool(m3)}, {m3}")
     if m3:
@@ -199,16 +202,16 @@ def check_filter_basic(route_dict):
         found_index_clause = True
 
     # ---- NEW: malformed RHS check
-    # ---- NEW: catch malformed/unrecognized RHS that contains '*' or other invalid chars ----
     # This covers cases like: index==*sdfd  OR index==sdf*d  (m1/m2 won't match these)
-    # if we find index== followed by a token containing '*' (or other disallowed chars), fail with explicit msg
-    m_malformed = re.search(rf"\bindex\b\s*{operator_pattern}\s*([^\s()]+)", norm, flags=re.IGNORECASE)
+    m_malformed = re.search(rf"\bindex\b\s*({operator_pattern})\s*([^\s()]+)", norm, flags=re.IGNORECASE)
     if m_malformed and not (m1 or m2):
         rhs_token = m_malformed.group(2)
         print("[DEBUG] Malformed RHS token detected =>", rhs_token)
-        # if it includes wildcard or other disallowed char -> fail with explicit msg
+        # if it includes wildcard or other disallowed char -> fail with specific message
         if '*' in rhs_token:
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed."}
+        # other non-matching tokens (containing unsupported punctuation) -> fail with malformed message
+        # allow A-Za-z0-9 . _ - and quotes inside RHS token (escaped hyphen and quotes in char class)
         if not re.match(r"^[A-Za-z0-9_.\-'\"]+$", rhs_token):
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Malformed RHS in index comparison; expected quoted string or alphanumeric token."}
 
