@@ -208,7 +208,7 @@ def check_filter_basic(route_dict):
         # if it includes wildcard or other disallowed char -> fail with explicit msg
         if '*' in rhs_token:
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed."}
-        if not re.match(r"^[A-Za-z0-9_.-']+$", rhs_token):
+        if not re.match(r"^[A-Za-z0-9_.\-'"]+$", rhs_token):
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Malformed RHS in index comparison; expected quoted string or alphanumeric token."}
 
     # --------- Step 8: Ensure index clause was found ---------
