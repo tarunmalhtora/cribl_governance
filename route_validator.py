@@ -203,12 +203,12 @@ def check_filter_basic(route_dict):
     # if we find index== followed by a token containing '*' (or other disallowed chars), fail with explicit msg
     m_malformed = re.search(rf"\bindex\b\s*{operator_pattern}\s*([^\s()]+)", norm, flags=re.IGNORECASE)
     if m_malformed and not (m1 or m2):
-        rhs_token = m_malformed.group(3)
+        rhs_token = m_malformed.group(2) # ✅ fix: correct group index
         print("[DEBUG] Malformed RHS token detected =>", rhs_token)
-        # if it includes wildcard or other disallowed char -> fail with specific message
+        # if it includes wildcard or other disallowed char -> fail with explicit msg
         if '*' in rhs_token:
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Wildcard '*' usage in index value is not allowed."}
-        if not re.match(r"^[A-Za-z0-9_.-'\"]+$", rhs_token):
+        if not re.match(r"^[A-Za-z0-9_.-']+$", rhs_token):
             return {"Check Name": check_name, "Status": "Failed","Remarks": "Malformed RHS in index comparison; expected quoted string or alphanumeric token."}
 
     # --------- Step 8: Ensure index clause was found ---------
