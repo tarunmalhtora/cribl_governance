@@ -1,0 +1,51 @@
+id: default
+groups: {}
+comments: {}
+routes:
+  - id: r001
+    name: "SPLUNK - Security"
+    final: true
+    disabled: false
+    description: "This route handles security index"
+    enableOutputExpression: false
+    outputExpression: null
+    filter: "__inputId=='splunk:in_splunk_tcp' && index=='security_prod'"
+    pipeline: "security_pipeline"
+    destination: "splunk-idx-prod"
+    clones: []
+
+  - id: r002
+    name: "SPLUNK - Syslog"
+    final: false
+    disabled: false
+    description: "Route for syslog events"
+    enableOutputExpression: false
+    outputExpression: null
+    filter: "__inputId=='splunk:in_splunk_tcp' && index=='syslog_prod'"
+    pipeline: "syslog_pipeline"
+    destination: "splunk-idx-prod"
+    clones: []
+
+  - id: r003
+    name: "NEO AUTO - nmp_dev (NEO Output Router)"
+    final: true
+    disabled: false
+    description: "Neo tenant dev route"
+    enableOutputExpression: false
+    outputExpression: null
+    filter: "__inputId=='splunk:in_splunk_hec' && index=='nmp_dev'"
+    pipeline: "neo_pipeline"
+    destination: "opensearch-dev"
+    clones: []
+
+  - id: r004
+    name: "SPLUNK - Audit"
+    final: false
+    disabled: false
+    description: "Audit logs route"
+    enableOutputExpression: false
+    outputExpression: null
+    filter: "__inputId=='splunk:in_splunk_tcp' && index=='audit_logs'"
+    pipeline: "audit_pipeline"
+    destination: "splunk-idx-nonprod"
+    clones: []
